@@ -1,7 +1,14 @@
 # Emergent Software — Build Plan
 
+**Delivery update:** Lemonade now implements the transfer demo. Lemon's `exercise`
+command operates its actual API. A guided Anthropic input-boundary probe exposed
+invalid array input being accepted as a transfer; a failing regression test,
+implementation fix, and fresh HTTP replay verified the correction. This is an
+actor-to-software feedback loop with a human-written fix, not automatic code
+generation. [Evidence and scope](../docs/software-exercise.md).
+
 **Date:** 2026-09-18  
-**Status:** Foundation implemented; first actor learning experiment implemented; general extraction and compilation pending  
+**Status:** Foundation, two-actor learning, and joint rehearsals implemented; general extraction and compilation pending
 **Related:** [Goal and build direction](emergent-software-goal-and-build-direction.md) · [Examples](emergent-software-examples/00-examples-index.md)
 
 ## Objective
@@ -19,9 +26,22 @@ Worlds, and retains a plan only after executable checks. Later runs revalidate
 and reuse that procedure. Anthropic can propose the plans; the other actors
 and scenario rules are scripted. See [implementation scope](../docs/actor-simulation.md).
 
+The `--team` experiment now adds independently controlled App and Payment actors
+with private observations, messages, role-specific capabilities, branch trials,
+and separate retained procedures. Live Anthropic decisions are interleaved by a
+bounded scheduler. Trial peers remain scripted, and a locally passing procedure
+is saved only if the live pair also succeeds. See [two-actor scope](../docs/team-simulation.md).
+
 This bridges reasoning and execution for one bounded problem. General pattern
-extraction, multiple reasoning actors, and compilation into reusable software
-remain future work. The stages below describe the broader intended system.
+extraction, learned peer models, and compilation into reusable software remain
+future work. The stages below describe the broader intended system.
+
+The next slice, `--joint`, now lets either role request a rehearsal in which
+both actual controllers choose their own actions. Failure evidence returns to
+both actors for revision. The World tests the recorded pair together across
+additional cases; both roles must adopt a passing result before live recovery.
+This replaces scripted peers inside joint rehearsals while retaining authored
+World rules and scheduling. See [joint rehearsal scope](../docs/joint-simulation.md).
 
 ## 1. Build the foundation we control
 

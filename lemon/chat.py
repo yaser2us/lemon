@@ -25,6 +25,9 @@ def load_chat(path):
         raise ValueError("Unsupported run format")
     if replay(run["events"]) != run["final_state"]:
         raise ValueError("Recorded final state differs from replay")
+    if run.get("mode") == "joint":
+        from .joint_world import verify_joint_evidence
+        verify_joint_evidence(run)
     return run
 
 
@@ -105,6 +108,9 @@ class ChatViewer:
     def event(self, event):
         kind, data = event["kind"], event["data"]
         if kind == "RUN_STARTED":
+            if data.get("initial_state", {}).get("domain") == "software-exercise":
+                self.note("Real HTTP exercise / {} / {}".format(data["target"], data["mode"]))
+                return
             if data.get("initial_state", {}).get("domain") == "actor-simulation":
                 self.note("Actor World: {} | executable laws and outcome checks".format(data["model"]))
                 return
@@ -128,6 +134,8 @@ class ChatViewer:
                 self.note("Test Agent review requested; waiting for processing (may call Anthropic)...")
         elif kind == "BRANCH_RESULTS":
             self.write("\nBRANCH EXPERIMENTS / hypothetical outcomes", "1;35")
+            if data.get("actor"):
+                self.note("Requested by {} / scripted peer in these trials".format(data["actor"].title()))
             for result in data["results"]:
                 self.note("{}: {} / {}".format(result["plan"]["name"], "PASS" if result["passed"] else "FAIL", " -> ".join(result["plan"]["steps"])))
                 for branch in result["branches"]:
@@ -136,11 +144,29 @@ class ChatViewer:
         elif kind == "STRATEGY_VALIDATED":
             self.note("World: strategy tested on {} additional model cases; {}".format(len(data["results"]), "PASS" if all(r["quality"]["passed"] for r in data["results"]) else "FAIL"))
         elif kind == "STRATEGY_REUSED":
-            self.note("Reuse retained strategy: {}".format(" -> ".join(data["plan"]["steps"])))
+            self.note("Reuse {} strategy: {}".format(data.get("actor", "retained"), " -> ".join(data["plan"]["steps"])))
         elif kind in {"ACTOR_REJECTED", "ACTOR_STOPPED", "ACTOR_ACTION_INVALID"}:
             self.note("World: " + data["reason"])
         elif kind == "ACTOR_DECIDING":
             self.note("App observes {} and chooses an action...".format(data["observation"]["app"]["status"]))
+        elif kind == "SOFTWARE_ACTION_REJECTED":
+            self.note("Actor format feedback: " + data["reason"])
+        elif kind == "SOFTWARE_DECIDING":
+            self.note("API actor chooses the next request...")
+        elif kind == "SOFTWARE_RESULT":
+            self.note("Actor: " + data["action"]["reason"])
+            self.note("{} {} -> HTTP {} (expected {}) / {}".format(data["request"]["method"], data["request"]["path"], data["response"]["status"], data["expected_status"], "PASS" if all(data["checks"].values()) else "FAIL"))
+            self.note("Request body: {} / Response: {}".format(data["request"]["body_json"] or "(none)", json.dumps(data["response"]["body"])))
+        elif kind == "JOINT_STARTED":
+            self.note("JOINT REHEARSAL {} / {} requested {} / isolated World".format(data["result_id"], data["actor"], data["hypothesis"]))
+        elif kind == "JOINT_STEP":
+            self.note("[{}] {} -> {}: {}".format(data["result_id"], data["actor"], data["action"], data["reason"]))
+        elif kind == "JOINT_RESULT":
+            self.note("JOINT RESULT {}: {} / rejected: {} / paired validation: {} cases".format(data["result_id"], "PASS" if data["passed"] else "FAIL", data["rejections"], len(data["validation"])))
+        elif kind == "JOINT_APPLIED":
+            self.note("Execute joint procedure {}{}".format(data["result_id"], " (revalidated memory)" if data.get("reused") else " (adopted by both actors)"))
+        elif kind == "TEAM_DECIDING":
+            self.note("{} observes {} and chooses an action...".format(data["actor"].title(), data["observation"]["local"]["status"]))
         elif kind == "AGENT_THINKING":
             self.note("{} / round {} / waiting for Anthropic...".format(data["agent"], data["round"]))
         elif kind == "DESIGN_VERIFIED":
@@ -156,13 +182,19 @@ class ChatViewer:
         elif kind in ("MESSAGE_REJECTED", "DUPLICATE_IGNORED", "AGENT_FAILED"):
             self.note("{} / {} / {}".format(kind, data.get("message_id", ""), data.get("reason", data.get("error_code", ""))))
         elif kind == "MODEL_REVIEW":
-            self.note("Anthropic / {} / {} ms / {}".format(data.get("result"), data.get("latency_ms", "?"), data.get("decision", data.get("error_code", ""))))
+            self.note("Anthropic / {} / {} / {} ms / {}".format(data.get("actor", "model"), data.get("result"), data.get("latency_ms", "?"), data.get("decision", data.get("error_code", ""))))
         elif kind in ("TRANSACTION_CHANGED", "TRANSFER_EXECUTED"):
             self.note("{} / {} / {}".format(kind, data.get("transaction_id"), data.get("after", {}).get("status", "executed")))
 
     def finish(self, run):
         self.write("\nDISCUSSION CHECKPOINT" if run.get("domain") == "scenario-discussion" else "\nCONVERSATION COMPLETE", "1;32")
         state = run["final_state"]
+        if run.get("domain") == "software-exercise":
+            self.note("Observed request checks: {} / run: {} / requests: {} / model HTTP attempts: {}".format("PASS" if run["quality"].get("observed_checks_passed", run["quality"]["passed"]) else "FAIL", state["status"], len(state["history"]), run["api_requests"]))
+            if run.get("error"):
+                self.note("Stopped: " + run["error"])
+            self.note(run["note"])
+            return
         if run.get("domain") == "actor-simulation":
             self.note("Outcome: {} / checks: {} / simulated transfer effects: {} / API requests: {}".format(
                 state["status"], "PASS" if run["quality"]["passed"] else "FAIL", state["effects"], run.get("api_requests", 0)))

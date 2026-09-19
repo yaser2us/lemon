@@ -21,6 +21,9 @@ from .reporting import render_report, save_run, save_suite
 from .runtime import World
 from .scenarios import SCENARIOS, get_scenario
 from .actor_world import FAULTS, ModelActor, run_actor, save_actor
+from .team_world import ModelTeamActor, ROLES, run_team
+from .joint_world import ModelJointActor, run_joint, verify_joint_evidence
+from .software_exercise import ModelApiActor, run_exercise, save_exercise
 
 
 def run_scenario(name, seed):
@@ -198,28 +201,65 @@ def main(argv=None):
     actor_parser = commands.add_parser("act", help="Enact a fictional transfer, explore branches, and retain a tested recovery strategy")
     actor_parser.add_argument("--fault", choices=FAULTS, default="response-lost")
     actor_parser.add_argument("--agent", choices=["local", "anthropic"], default="local", help="App actor implementation; Anthropic makes paid API calls")
-    actor_parser.add_argument("--output", type=Path, default=Path("runs/actors"))
-    actor_parser.add_argument("--memory", type=Path, default=Path("runs/actors/strategy.json"))
+    actor_parser.add_argument("--team", action="store_true", help="Independent App and Payment actors with private observations and role-local strategies")
+    actor_parser.add_argument("--joint", action="store_true", help="Both actors enact isolated rehearsals together; implies --team")
+    actor_parser.add_argument("--output", type=Path)
+    actor_parser.add_argument("--memory", type=Path)
     actor_parser.add_argument("--fresh", action="store_true", help="Explore without reading existing strategy memory; still save a newly learned strategy")
     actor_parser.add_argument("--delay", type=float, default=0, help="Chat playback delay in seconds")
-    for provider_parser in (design_parser, compare_parser, chat_parser, actor_parser):
+    exercise_parser = commands.add_parser("exercise", help="Let an actor exercise the real local Lemonade API")
+    exercise_parser.add_argument("--url", default="http://127.0.0.1:3301")
+    exercise_parser.add_argument("--agent", choices=["local", "anthropic"], default="local")
+    exercise_parser.add_argument("--task", default="Exercise actual recovery and invalid-input behavior", help="Concrete probe objective for the actor")
+    exercise_parser.add_argument("--output", type=Path, default=Path("runs/software"))
+    exercise_parser.add_argument("--replay-actions", type=Path, help="Replay saved exercise actions against fresh identities with no model calls")
+    for provider_parser in (design_parser, compare_parser, chat_parser, actor_parser, exercise_parser):
         provider_parser.add_argument("--env-file", type=Path, default=Path(".env.local"))
         provider_parser.add_argument("--api-timeout", type=float, default=30, help="Per-request socket timeout in seconds (maximum 60)")
         provider_parser.add_argument("--max-api-requests", type=int, default=8, help="Maximum HTTP attempts per conversation, including retries")
     args = parser.parse_args(argv)
     try:
-        if args.command == "act":
+        if args.command == "exercise":
+            actions = None
+            actor = None
+            if args.replay_actions:
+                recorded = json.loads(args.replay_actions.read_text(encoding="utf-8"))
+                if recorded.get("domain") != "software-exercise" or replay(recorded["events"]) != recorded["final_state"]:
+                    raise ValueError("Not a verified software exercise trace")
+                actions = [h["action"] for h in recorded["final_state"]["history"]]
+            elif args.agent == "anthropic":
+                key, model = load_configuration(args.env_file)
+                actor = ModelApiActor(AnthropicClient(key, model, timeout=args.api_timeout, max_requests=args.max_api_requests))
+            viewer = ChatViewer()
+            viewer.start(live=True)
+            run = run_exercise(args.url, actor=actor, actions=actions, on_event=viewer.event, task=args.task)
+            path = save_exercise(run, args.output)
+            viewer.finish(run)
+            viewer.write("Saved HTTP evidence and replay actions: {}".format(path))
+            return 0 if run["quality"]["passed"] else 1
+        elif args.command == "act":
+            args.team = args.team or args.joint
             if not math.isfinite(args.delay) or args.delay < 0:
                 parser.error("--delay must be finite and nonnegative")
+            default_dir = Path("runs/actor-joint" if args.joint else "runs/actor-team" if args.team else "runs/actors")
+            args.output = args.output or default_dir
+            args.memory = args.memory or default_dir / "strategy.json"
             memory = json.loads(args.memory.read_text(encoding="utf-8")) if not args.fresh and args.memory.exists() else None
             actor = None
+            actors = None
             if args.agent == "anthropic":
                 key, model = load_configuration(args.env_file)
-                actor = ModelActor(AnthropicClient(key, model, timeout=args.api_timeout, max_requests=args.max_api_requests))
+                client = AnthropicClient(key, model, timeout=args.api_timeout, max_requests=args.max_api_requests)
+                if args.team:
+                    actors = {role: (ModelJointActor if args.joint else ModelTeamActor)(client, role) for role in ROLES}
+                else:
+                    actor = ModelActor(client)
             viewer = ChatViewer(delay=args.delay)
             viewer.start(live=True)
-            viewer.note("Actor simulation / App: {} / bank roles follow declared local model rules / no real payment".format(args.agent))
-            run = run_actor(args.fault, actor=actor, memory=memory, on_event=viewer.event)
+            viewer.note("Actor simulation / {}: {} / fictional World / no real payment".format("App and Payment" if args.team else "App", args.agent))
+            run = (run_joint(args.fault, actors=actors, memory=memory, on_event=viewer.event) if args.joint else
+                   run_team(args.fault, actors=actors, memory=memory, on_event=viewer.event) if args.team else
+                   run_actor(args.fault, actor=actor, memory=memory, on_event=viewer.event))
             path = save_actor(run, args.output, args.memory)
             viewer.finish(run)
             viewer.write("Saved actor trace and branch experiments: {}".format(path))
@@ -320,6 +360,8 @@ def main(argv=None):
             state = replay(run["events"])
             if state != run["final_state"]:
                 raise ValueError("Recorded final state differs from replay")
+            if run.get("mode") == "joint":
+                verify_joint_evidence(run)
             print(json.dumps({"verified": True, "final_state": state}, indent=2, sort_keys=True))
         return 0
     except KeyboardInterrupt:

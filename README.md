@@ -1,5 +1,13 @@
 # Lemon
 
+The sibling [Lemonade project](../Lemonade/README.md) is the implementation
+sandbox: Next.js/React with JavaScript and a Fastify backend. Lemon explores
+behavior; Lemonade turns agreed behavior into working software and verifies it.
+
+`python3 -m lemon exercise --agent anthropic` now lets an actor operate the
+actual local Lemonade API, with independently checked responses and replayable
+requests. See [software exercises and the first verified fix](docs/software-exercise.md).
+
 A local experiment in agent communication and learning through executable simulations. The new actor experiment connects an App actor's decisions to a fictional transfer World, branch experiments, and reusable strategies. Earlier transfer and software discussion modes remain available.
 
 This implements the communication phase of [the plan](.idea/agent-communication-phase-plan.md). Python 3.9 or newer is required, with no external dependencies. Default commands run locally without LLM calls. Live Anthropic review requires an explicit option or comparison command. There are no real payment connections or automatic code generation.
@@ -19,9 +27,30 @@ python3 -m lemon act --agent anthropic --fresh
 python3 -m lemon act --agent anthropic --fault request-lost
 ```
 
-The terminal shows actor messages, branch outcomes, and independent checks. Only
-the App reasons with Anthropic; the Customer and bank actors are scripted. This
-is a bounded fictional World, with no real payment connections. See
+Add `--team` for independent App and Payment actors with private observations,
+messages, experiments, and separate retained procedures:
+
+```sh
+python3 -m lemon act --team --fresh --fault processing
+python3 -m lemon act --team --agent anthropic --fresh --fault processing --max-api-requests 16
+python3 -m lemon act --team --agent anthropic --fault request-lost
+```
+
+Use `--joint` to let both actual controllers act inside the same isolated
+rehearsal, revise from failures, and adopt a jointly verified procedure:
+
+```sh
+python3 -m lemon act --joint --fresh --fault processing
+python3 -m lemon act --joint --agent anthropic --fresh --fault processing --max-api-requests 32
+```
+
+[Joint rehearsal details](docs/joint-simulation.md) explain the evidence,
+shared API budget, and limits. `--joint` implies `--team` and uses separate memory.
+
+The terminal shows actor messages, branch outcomes, and executable checks. In
+team mode both roles use Anthropic; without `--team`, only App does. Underlying
+banking rules remain scripted. This is a bounded fictional World with no real
+payment connections. See [two-actor coordination](docs/team-simulation.md) and
 [the actor experiment](docs/actor-simulation.md) for its rules and limitations.
 
 Give the agents your own scenario:

@@ -1,5 +1,8 @@
 # Learning through enacted scenarios
 
+For independent App and Payment reasoning actors, see the newer
+[`--team` experiment](team-simulation.md). This page describes single-actor mode.
+
 The `act` command is the first bridge from agent decisions to World actions and
 retained behavior. There is no reviewer agent in this mode. The World enforces
 laws and checks results mechanically.

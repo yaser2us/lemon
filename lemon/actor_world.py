@@ -50,18 +50,18 @@ tool call matching the action schema (the tool name is just the existing transpo
 
 
 class ActorWorld:
-    def __init__(self, fault="response-lost", delay=2, balance=100000, on_event=None, sandbox=False):
+    def __init__(self, fault="response-lost", delay=2, balance=100000, on_event=None, sandbox=False, model=MODEL, limits=None):
         if fault not in FAULTS or type(delay) is not int or not 1 <= delay <= 5 or type(balance) is not int or balance < 0:
             raise ValueError("Invalid actor scenario")
         self.fault, self.delay, self.sandbox = fault, delay, sandbox
         self.tick, self.new_keys = 0, 0
         self.log = EventLog(on_event)
-        initial = {"domain": "actor-simulation", "model": MODEL, "intent": "intent-1", "amount_sen": 10000,
+        initial = {"domain": "actor-simulation", "model": model, "intent": "intent-1", "amount_sen": 10000,
                    "ledger": {"maybank": balance, "cimb": 0}, "initial_balance": balance,
                    "attempts": {}, "effects": 0, "pending": None, "rejections": [],
                    "app": {"attempt": "attempt-1", "status": "READY", "customer_report": None}, "status": "active"}
         self.log.append(0, "RUN_STARTED", {"initial_state": initial, "fault": fault, "delay": delay,
-                         "model": MODEL, "sandbox": sandbox, "limits": {"decisions": 20, "simulations": 3, "plan_steps": 6}})
+                         "model": model, "sandbox": sandbox, "limits": limits or {"decisions": 20, "simulations": 3, "plan_steps": 6}})
         self.say("customer", "app-actor", "CONFIRM_TRANSFER", "Simulate RM100 to another person's CIMB account. Recipient and authorization are preconfirmed fictional fixtures.")
 
     @property
